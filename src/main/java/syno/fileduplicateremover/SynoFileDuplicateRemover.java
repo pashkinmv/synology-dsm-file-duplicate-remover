@@ -13,19 +13,15 @@ public class SynoFileDuplicateRemover {
     public static void main(String[] args) {
         AppCmdConfig appCmdConfig = AppCmdConfig.fromArgs(args);
 
-        execute(appCmdConfig.getFile(), appCmdConfig.isDryRun(), appCmdConfig.getEncoding());
-    }
-
-    static void execute(String synoDuplicateListCsvFile, boolean dryRun, String encoding) {
-        System.out.println("Parse csv file: " + new File(synoDuplicateListCsvFile).getAbsolutePath());
+        System.out.println("Parse csv file: " + new File(appCmdConfig.getFile()).getAbsolutePath());
 
         Metrics metrics = new Metrics();
 
-        Map<Integer, List<DuplicateFile>> csvFileContent = parseFile(synoDuplicateListCsvFile, encoding, metrics);
+        Map<Integer, List<DuplicateFile>> csvFileContent = parseFile(appCmdConfig.getFile(), appCmdConfig.getEncoding(), metrics);
         List<DuplicateFile> filesToDelete = createDeleteFileList(csvFileContent, metrics);
         updateMetrics(filesToDelete, metrics);
-        saveListToFile(filesToDelete, encoding);
-        deleteFiles(dryRun,filesToDelete);
+        saveListToFile(filesToDelete, appCmdConfig.getEncoding());
+        new FileTerminatorBash(appCmdConfig).killThemAll(filesToDelete);
 
         metrics.printSummary();
     }
@@ -99,23 +95,6 @@ public class SynoFileDuplicateRemover {
             e.printStackTrace();
         }
     }
-
-    private static void deleteFiles(boolean dryRun, List<DuplicateFile> filesToDelete) {
-        if (dryRun) {
-            System.out.println("Dry more is on. Files won't be deleted.");
-            return;
-        }
-
-        for (DuplicateFile fileToDelete : filesToDelete) {
-            try {
-                Files.delete(Paths.get(fileToDelete.getFileLocation().replaceAll("\"|\0|\\s", "")));
-                System.out.println("Deleted file: " + fileToDelete.getFileLocation());
-            } catch (IOException exc) {
-                exc.printStackTrace();
-            }
-        }
-    }
-
 
     private static void skipHeader(BufferedReader fileReader) throws IOException {
         fileReader.readLine();
