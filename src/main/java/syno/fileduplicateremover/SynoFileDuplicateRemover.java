@@ -1,33 +1,20 @@
 package syno.fileduplicateremover;
-import java.io.BufferedReader;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.IOException;
-import java.io.InputStreamReader;
-import java.nio.file.DirectoryNotEmptyException;
+
+import org.apache.commons.cli.*;
+
+import java.io.*;
 import java.nio.file.Files;
-import java.nio.file.NoSuchFileException;
-import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Map.Entry;
-
-import org.apache.commons.cli.CommandLine;
-import org.apache.commons.cli.DefaultParser;
-import org.apache.commons.cli.HelpFormatter;
-import org.apache.commons.cli.Option;
-import org.apache.commons.cli.Options;
-import org.apache.commons.cli.ParseException;
 
 public class SynoFileDuplicateRemover {
 
-    public static void main(String[] args) {
+    public static final String DEFAULT_CSV_ENCODING = "ISO_8859_1";
 
-        String synoDuplicateListCsvFile = "";
-        boolean dryRun = false;
+    public static void main(String[] args) {
         Options options = new Options();
 
         options.addOption(Option.builder("csv_file")
@@ -39,145 +26,135 @@ public class SynoFileDuplicateRemover {
                 .required(false)
                 .hasArg(false).argName("dry_run")
                 .desc("optional, run in dry_run mode. No deletion.").build());
+
+        options.addOption(Option.builder("encoding")
+                .required(false)
+                .hasArg(true).argName("encoding")
+                .desc("Csv file encoding. Default is " + DEFAULT_CSV_ENCODING).build());
+
         try {
             CommandLine commandLine = new DefaultParser().parse(options, args);
-            synoDuplicateListCsvFile = commandLine.getOptionValue("csv_file");
-            if (commandLine.getOptions().length == 2) {
-                if ("dry_run".equals(commandLine.getOptions()[0].getArgName()) || "dry_run".equals(commandLine.getOptions()[1].getArgName())) {
-                    dryRun = true;
-                }
-            }
-            deleteDuplicateFiles(synoDuplicateListCsvFile, dryRun);
+            String synoDuplicateListCsvFile = commandLine.getOptionValue("csv_file");
+            boolean dryRun = commandLine.hasOption("dry_run");
+            String encoding = commandLine.getOptionValue("encoding");
+
+            execute(synoDuplicateListCsvFile, dryRun, encoding == null ? DEFAULT_CSV_ENCODING : encoding);
 
         } catch (ParseException e) {
             HelpFormatter formatter = new HelpFormatter();
             formatter.setOptionComparator(null); // Keep insertion order of options
             formatter.printHelp("SynoFileDuplicateRemover", "Remove the duplicate files from the Synology NAS (DSM)", options, null);
             System.exit(1);
-            return;			
         }
 
     }
 
-    public static void deleteDuplicateFiles(String synoDuplicateListCsvFile, boolean dryRun) {
-        int removedFilesCounter = 0;		
-        int duplicateIndex = 0;
-        int prevDuplicateIndex = 0;
-        long fileSizeUsageFreedInBytes = 0L; 
-        long start = System.currentTimeMillis();
-        BufferedReader fileReader = null;
+    static void execute(String synoDuplicateListCsvFile, boolean dryRun, String encoding) {
+        System.out.println("Parse csv file: " + new File(synoDuplicateListCsvFile).getAbsolutePath());
 
-        List<DuplicateFile> duplicateFilesList = new ArrayList<DuplicateFile> ();
-        Map<Integer, List<DuplicateFile>> duplicateFilesToRemove = new HashMap<Integer, List<DuplicateFile>> ();
+        Metrics metrics = new Metrics();
 
-        FileCursor fc = new SynoFileDuplicateRemover().new FileCursor();
-        fc.lineIndex = 0;
+        Map<Integer, List<DuplicateFile>> csvFileContent = parseFile(synoDuplicateListCsvFile, encoding, metrics);
+        List<DuplicateFile> filesToDelete = createDeleteFileList(csvFileContent, metrics);
+        updateMetrics(filesToDelete, metrics);
+        saveListToFile(filesToDelete, encoding);
+        deleteFiles(dryRun,filesToDelete);
 
-        try {			
+        metrics.printSummary();
+    }
 
-            fileReader = new BufferedReader(new InputStreamReader(new FileInputStream(new File(synoDuplicateListCsvFile).getAbsolutePath()), "ISO-8859-1"));
-            if (dryRun) System.out.println("Running in dry run mode no deletion.. ");
-            System.out.println("Visiting the content of the csv file.. " + new File(synoDuplicateListCsvFile).getAbsolutePath());
-            System.out.println("Grouping the files together by duplicate id\n");
+    static Map<Integer, List<DuplicateFile>> parseFile(String synoDuplicateListCsvFile, String encoding, Metrics metrics) {
+        Map<Integer, List<DuplicateFile>> csvFileContent = new HashMap<>();
 
-            while((fc.currentLine = fileReader.readLine()) != null) {                         
+        try (BufferedReader fileReader = new BufferedReader(new InputStreamReader(Files.newInputStream(Paths.get(new File(synoDuplicateListCsvFile).getAbsolutePath())), encoding))) {
+            skipHeader(fileReader);
 
-                if (fc.lineIndex > 0 && fc.currentLine.replace("\0", "").length() > 0) {
-
-                    DuplicateFile duplicateFile = fc.build();
-                    duplicateIndex = duplicateFile.duplicateId;		        	
-                    System.out.print("Line" +fc.lineIndex+"    Managing index: "+ duplicateIndex);
-
-                    if (fc.lineIndex == 1) {
-                        prevDuplicateIndex = duplicateIndex;		        		
-                        System.out.println("    Adding: " + duplicateFile.fileLocation);
-                        duplicateFilesList.add(duplicateFile);		        		
-
-                    } else {
-                        if (prevDuplicateIndex == duplicateIndex) {
-                            duplicateFilesList.add(duplicateFile);
-                            System.out.println("    Adding: " + duplicateFile.fileLocation);
-                        } 
-                        else {
-                            List<DuplicateFile> prevDuplicateFilesList = new ArrayList<> ();
-                            prevDuplicateFilesList.addAll(duplicateFilesList);
-                            duplicateFilesToRemove.put(prevDuplicateIndex, prevDuplicateFilesList);
-
-                            duplicateFilesList = new ArrayList<>();
-                            duplicateFilesList.add(duplicateFile);
-                            System.out.println("    Adding: " + duplicateFile.fileLocation);
-                            prevDuplicateIndex = duplicateIndex;		        			
-                        }
-                    } 		        	
-                } 
-                if (fc.currentLine.replace("\0", "").length() > 0) {
-                    fc.lineIndex ++;
-                    fc.flush();
+            String line;
+            while ((line = fileReader.readLine()) != null) {
+                if (isEmpty(line)) {
+                    continue;
                 }
 
-            }
-            fileReader.close();
+                String[] fileLineTokens = line.split("\t"); // wrong format exit
+                DuplicateFile duplicateFile = new DuplicateFile();
+                duplicateFile.setGroup(Integer.parseInt(fileLineTokens[0].replaceAll("\"|\0", "")));
+                duplicateFile.setFileLocation(fileLineTokens[2].replace("\"", "").replace("\0", ""));
+                duplicateFile.setFileSizeBytes(Long.parseLong(fileLineTokens[3].replace("\"", "").replace("\0", "")));
 
-            System.out.println(duplicateFilesToRemove.size());
-            System.out.println("\nStarting the deletion\n");
+                csvFileContent
+                        .computeIfAbsent(duplicateFile.getGroup(), i -> new ArrayList<>())
+                        .add(duplicateFile);
 
-            for (Entry<Integer, List<DuplicateFile>> entry: duplicateFilesToRemove.entrySet()) {
-
-                List<DuplicateFile> fileList = entry.getValue();
-                System.out.println("Visiting duplicate id " + entry.getKey() + " - list of: " + fileList.size() + " items.");
-                for (int i = fileList.size() -1; i > 0; i--) {
-                    String fileToRemove = fileList.get(i).fileLocation;
-                    Path pathFileToRemove = Paths.get(fileToRemove.replaceAll("\"|\0|\\s", ""));
-                    System.out.println("    Duplicate id: " + entry.getKey()+" removing duplicate file: " + pathFileToRemove.toString() );
-                    if (!dryRun) {
-                        try {
-                            Files.delete(pathFileToRemove);
-                        } catch (NoSuchFileException | DirectoryNotEmptyException exc) {
-                            exc.printStackTrace();
-                        }
-                    }
-                    fileSizeUsageFreedInBytes += Long.parseLong(fileList.get(i).fileSizeInByte);
-                    removedFilesCounter ++;
-                }
+                metrics.incrementTotalFiles();
             }
         } catch (IOException exc) {
             exc.printStackTrace();
-
-        } finally {
-            if (fileReader != null) try { fileReader.close(); } catch (IOException logOrIgnore) {}
+            System.exit(1);
         }
-        System.out.println("\nSummary\n");
-        System.out.println("Visited files: " + fc.lineIndex--);
-        System.out.println("Group count (duplicate id): " + duplicateIndex);
-        System.out.println("Removed files: " + removedFilesCounter + " freed up space: " + (fileSizeUsageFreedInBytes/(1024*1024*1024)) + " G");
-        System.out.println("Files remaining: " + ((fc.lineIndex-1) - removedFilesCounter));
-        long end = System.currentTimeMillis() - start;
-        System.out.println("Time taken: " + (end/1000) + " s");
+
+        metrics.setGroupCount(csvFileContent.size());
+
+        return csvFileContent;
     }
 
-    public class DuplicateFile {
-        int duplicateId;
-        String fileLocation;
-        String fileSizeInByte;
+    static List<DuplicateFile> createDeleteFileList(Map<Integer, List<DuplicateFile>> csvFileContent, Metrics metrics) {
+        List<DuplicateFile> filesToDelete = new ArrayList<>();
 
+        csvFileContent.values().forEach(fileDuplicates -> {
+            if (fileDuplicates.size() == 1) {
+                System.out.println("No duplicates found for group: " + fileDuplicates.get(0).getGroup());
+            } else {
+                filesToDelete.addAll(fileDuplicates.subList(1, fileDuplicates.size()));
+            }
+        });
+
+        return filesToDelete;
     }
 
-    public class FileCursor {
-        public int lineIndex;
-        public String currentLine;
-        public String[] lineTokens;		
+    static void updateMetrics(List<DuplicateFile> filesToDelete, Metrics metrics) {
+        metrics.setRemovedFilesBytes(filesToDelete.stream()
+                .map(DuplicateFile::getFileSizeBytes)
+                .reduce(0L, Long::sum));
 
-        public DuplicateFile build() {
-            String[] fileLineTokens = currentLine.split("\t"); // wrong format exit		        	
-            DuplicateFile duplicateFile = new SynoFileDuplicateRemover().new DuplicateFile();
-            duplicateFile.duplicateId = Integer.parseInt(fileLineTokens[0].replaceAll("\"|\0", ""));
-            duplicateFile.fileLocation = fileLineTokens[2].replace("\"", "").replace("\0", "");
-            duplicateFile.fileSizeInByte = fileLineTokens[3].replace("\"", "").replace("\0", "");
-            return duplicateFile;
+        metrics.setRemovedFiles(filesToDelete.size());
+    }
+
+    static void saveListToFile(List<DuplicateFile> filesToDelete, String encoding) {
+        try (BufferedWriter fileWriter = new BufferedWriter(new OutputStreamWriter(new FileOutputStream("deleted-files.csv"), encoding))) {
+            for (int i = 0; i < filesToDelete.size(); i++) {
+                if (i > 0) {
+                    fileWriter.newLine();
+                }
+
+                fileWriter.write(filesToDelete.get(i).getFileLocation());
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private static void deleteFiles(boolean dryRun, List<DuplicateFile> filesToDelete) {
+        if (dryRun) {
+            System.out.println("Dry more is on. Files won't be deleted.");
+            return;
         }
 
-        public void flush() {
-            currentLine = "";
+        for (DuplicateFile fileToDelete : filesToDelete) {
+            try {
+                Files.delete(Paths.get(fileToDelete.getFileLocation().replaceAll("\"|\0|\\s", "")));
+                System.out.println("Deleted file: " + fileToDelete.getFileLocation());
+            } catch (IOException exc) {
+                exc.printStackTrace();
+            }
         }
+    }
+
+
+    private static void skipHeader(BufferedReader fileReader) throws IOException {
+        fileReader.readLine();
+    }
+
+    private static boolean isEmpty(String line) {
+        return line.replace("\0", "").isEmpty();
     }
 }
