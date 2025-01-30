@@ -54,7 +54,7 @@ public class FileTerminatorSsh implements FileTerminator {
         channelExec.setCommand(command);
         channelExec.connect();
 
-        printCommandResponse(channelExec, channelExec.getInputStream());
+        printCommandResponse(channelExec, channelExec.getExtInputStream());
 
         System.out.println("Success: " + (channelExec.getExitStatus() == 0));
         if (channelExec.getExitStatus() != 0) {
