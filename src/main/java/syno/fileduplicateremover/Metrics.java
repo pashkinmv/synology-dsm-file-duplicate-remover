@@ -19,8 +19,16 @@ public class Metrics {
         this.removedFiles = removedFiles;
     }
 
+    void decreaseRemovedFiles() {
+        removedFiles--;
+    }
+
     void setRemovedFilesBytes(long removedFilesBytes) {
         this.removedFilesBytes = removedFilesBytes;
+    }
+
+    void decreaseRemovedFilesBytes(long notRemovedFilesBytes) {
+        removedFilesBytes -= notRemovedFilesBytes;
     }
 
     void incrementTotalFiles() {

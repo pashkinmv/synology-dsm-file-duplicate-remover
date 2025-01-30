@@ -11,7 +11,13 @@ import java.util.Map;
 public class SynoFileDuplicateRemover {
 
     public static void main(String[] args) {
-        AppCmdConfig appCmdConfig = AppCmdConfig.fromArgs(args);
+        AppCmdConfig appCmdConfig;
+
+        if (new File("app.properties").exists()) {
+            appCmdConfig = AppCmdConfig.fromPropertiesFile("app.properties");
+        } else {
+            appCmdConfig = AppCmdConfig.fromArgs(args);;
+        }
 
         System.out.println("Parse csv file: " + new File(appCmdConfig.getFile()).getAbsolutePath());
 
@@ -21,7 +27,12 @@ public class SynoFileDuplicateRemover {
         List<DuplicateFile> filesToDelete = createDeleteFileList(csvFileContent, metrics);
         updateMetrics(filesToDelete, metrics);
         saveListToFile(filesToDelete, appCmdConfig.getEncoding());
-        new FileTerminatorBash(appCmdConfig).killThemAll(filesToDelete);
+
+        if (appCmdConfig.getSshHost() != null) {
+            new FileTerminatorSsh(appCmdConfig, metrics).killThemAll(filesToDelete);
+        } else {
+            new FileTerminatorBash(appCmdConfig).killThemAll(filesToDelete);
+        }
 
         metrics.printSummary();
     }
