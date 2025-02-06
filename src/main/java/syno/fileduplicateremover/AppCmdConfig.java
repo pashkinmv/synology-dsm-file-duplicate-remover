@@ -12,6 +12,8 @@ public class AppCmdConfig {
     public static final String DEFAULT_CSV_ENCODING = "ISO_8859_1";
     public static final String CSV_FILE = "csv_file";
     public static final String DRY_RUN = "dry_run";
+    public static final String DIRS_DELETE_FROM = "dirs_delete_from";
+    public static final String DIRS_DO_NOT_DELETE_FROM = "dirs_do_not_delete_from";
     public static final String ENCODING = "encoding";
     public static final String SSH_HOST = "ssh_host";
     public static final String SSH_USER = "ssh_user";
@@ -29,6 +31,8 @@ public class AppCmdConfig {
 
         appCmdConfig.setFile(prop.getProperty(CSV_FILE));
         appCmdConfig.setDryRun(prop.containsKey(DRY_RUN));
+        appCmdConfig.setDirsDeleteFrom(prop.getProperty(DIRS_DELETE_FROM));
+        appCmdConfig.setDirsDoNotDeleteFrom(prop.getProperty(DIRS_DO_NOT_DELETE_FROM));
         appCmdConfig.setEncoding(prop.getProperty(ENCODING, DEFAULT_CSV_ENCODING));
         appCmdConfig.setSshHost(prop.getProperty(SSH_HOST));
         try {
@@ -52,6 +56,8 @@ public class AppCmdConfig {
 
             appCmdConfig.setFile(commandLine.getOptionValue(CSV_FILE));
             appCmdConfig.setDryRun(commandLine.hasOption(DRY_RUN));
+            appCmdConfig.setDirsDeleteFrom(commandLine.getOptionValue(DIRS_DELETE_FROM));
+            appCmdConfig.setDirsDoNotDeleteFrom(commandLine.getOptionValue(DIRS_DO_NOT_DELETE_FROM));
 
             String encoding = commandLine.getOptionValue(ENCODING);
             appCmdConfig.setEncoding(encoding == null ? DEFAULT_CSV_ENCODING : encoding);
@@ -88,6 +94,16 @@ public class AppCmdConfig {
                 .required(false)
                 .hasArg(false).argName(DRY_RUN)
                 .desc("optional, run in dry_run mode if presents. No deletion.").build());
+
+        options.addOption(Option.builder(DIRS_DELETE_FROM)
+                .required(true)
+                .hasArg(true).argName(DIRS_DELETE_FROM)
+                .desc("optional, comma separated list of dirs preferred delete from").build());
+
+        options.addOption(Option.builder(DIRS_DO_NOT_DELETE_FROM)
+                .required(true)
+                .hasArg(true).argName(DIRS_DO_NOT_DELETE_FROM)
+                .desc("optional, comma separated list of dirs preferred not to delete from").build());
 
         options.addOption(Option.builder(ENCODING)
                 .required(false)
@@ -130,4 +146,6 @@ public class AppCmdConfig {
     String sshUser;
     String sshPassword;
     boolean sshSkipHostKeyChecking;
+    String dirsDeleteFrom;
+    String dirsDoNotDeleteFrom;
 }

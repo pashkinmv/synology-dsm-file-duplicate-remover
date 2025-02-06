@@ -3,10 +3,7 @@ package syno.fileduplicateremover;
 import java.io.*;
 import java.nio.file.Files;
 import java.nio.file.Paths;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 public class SynoFileDuplicateRemover {
 
@@ -24,7 +21,7 @@ public class SynoFileDuplicateRemover {
         Metrics metrics = new Metrics();
 
         Map<Integer, List<DuplicateFile>> csvFileContent = parseFile(appCmdConfig.getFile(), appCmdConfig.getEncoding(), metrics);
-        List<DuplicateFile> filesToDelete = createDeleteFileList(csvFileContent, metrics);
+        List<DuplicateFile> filesToDelete = createDeleteFileList(csvFileContent, appCmdConfig);
         updateMetrics(filesToDelete, metrics);
         saveListToFile(filesToDelete, appCmdConfig.getEncoding());
 
@@ -71,14 +68,51 @@ public class SynoFileDuplicateRemover {
         return csvFileContent;
     }
 
-    static List<DuplicateFile> createDeleteFileList(Map<Integer, List<DuplicateFile>> csvFileContent, Metrics metrics) {
-        List<DuplicateFile> filesToDelete = new ArrayList<>();
+    static List<DuplicateFile> createDeleteFileList(Map<Integer, List<DuplicateFile>> csvFileContent, AppCmdConfig appCmdConfig) {
+        final List<DuplicateFile> filesToDelete = new ArrayList<>();
+        final List<String> dirsDeleteFrom = new ArrayList<>();
+        final List<String> dirsDoNotDeleteFrom = new ArrayList<>();
+        
+        if (appCmdConfig.getDirsDeleteFrom() != null) {
+            dirsDeleteFrom.addAll(Arrays.stream(appCmdConfig.getDirsDeleteFrom().split(","))
+                    .map(String::trim)
+                    .map(String::toLowerCase)
+                    .filter(string -> !string.isBlank())
+                    .toList());
+        }
+        
+        if (appCmdConfig.getDirsDoNotDeleteFrom() != null) {
+            dirsDoNotDeleteFrom.addAll(Arrays.stream(appCmdConfig.getDirsDoNotDeleteFrom().split(","))
+                    .map(String::trim)
+                    .map(String::toLowerCase)
+                    .filter(string -> !string.isBlank())
+                    .toList());
+        }
 
         csvFileContent.values().forEach(fileDuplicates -> {
             if (fileDuplicates.size() == 1) {
                 System.out.println("No duplicates found for group: " + fileDuplicates.get(0).getGroup());
             } else {
-                filesToDelete.addAll(fileDuplicates.subList(1, fileDuplicates.size()));
+                Optional<DuplicateFile> preferredNotToBeDeleted = fileDuplicates.stream()
+                        .filter(fileDuplicate -> dirsDoNotDeleteFrom.stream().filter(dirDoNotDeleteFrom -> fileDuplicate.getFileLocation().toLowerCase().contains(dirDoNotDeleteFrom)).findAny().isPresent())
+                                .findAny();
+                List<DuplicateFile> preferredToBeDeleted = fileDuplicates.stream()
+                        .filter(fileDuplicate -> dirsDeleteFrom.stream().filter(dirDeleteFrom -> fileDuplicate.getFileLocation().toLowerCase().contains(dirDeleteFrom)).findAny().isPresent())
+                        .toList();
+
+                final List<DuplicateFile> fileCopy = new ArrayList<>(fileDuplicates);
+
+                if (preferredNotToBeDeleted.isPresent()) {
+                    fileCopy.remove(preferredNotToBeDeleted.get());
+                } else if (preferredToBeDeleted.isEmpty() || preferredToBeDeleted.size() == fileCopy.size()) {
+                    fileCopy.remove(0);
+                } else {
+                    fileCopy.remove(fileCopy.stream()
+                            .filter(file -> !preferredToBeDeleted.contains(file))
+                            .findAny().get());
+                }
+
+                filesToDelete.addAll(fileCopy);
             }
         });
 
