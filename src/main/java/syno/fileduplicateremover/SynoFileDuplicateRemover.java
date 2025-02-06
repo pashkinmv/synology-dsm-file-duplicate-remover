@@ -1,11 +1,17 @@
 package syno.fileduplicateremover;
 
+import lombok.SneakyThrows;
+import net.lingala.zip4j.core.ZipFile;
+import net.lingala.zip4j.exception.ZipException;
+
 import java.io.*;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.*;
 
 public class SynoFileDuplicateRemover {
+
+    public static final String EXTENTION_ZIP = ".zip";
 
     public static void main(String[] args) {
         AppCmdConfig appCmdConfig;
@@ -16,7 +22,9 @@ public class SynoFileDuplicateRemover {
             appCmdConfig = AppCmdConfig.fromArgs(args);;
         }
 
-        System.out.println("Parse csv file: " + new File(appCmdConfig.getFile()).getAbsolutePath());
+        unzipAndDelete(appCmdConfig);
+
+        System.out.println("Parsing csv file: " + new File(appCmdConfig.getFile()).getAbsolutePath());
 
         Metrics metrics = new Metrics();
 
@@ -32,6 +40,23 @@ public class SynoFileDuplicateRemover {
         }
 
         metrics.printSummary();
+    }
+
+    @SneakyThrows
+    private static void unzipAndDelete(AppCmdConfig appCmdConfig) {
+        String fileName = appCmdConfig.getFile();
+
+        if (fileName.endsWith(EXTENTION_ZIP)) {
+            System.out.println("Extracting zip: " + fileName);
+
+            File file = new File(fileName);
+
+            new ZipFile(fileName).extractAll(file.getAbsoluteFile().getParentFile().getPath());
+
+            file.delete();
+            appCmdConfig.setFile(fileName.substring(0, fileName.length() - EXTENTION_ZIP.length()));
+
+        }
     }
 
     static Map<Integer, List<DuplicateFile>> parseFile(String synoDuplicateListCsvFile, String encoding, Metrics metrics) {
